@@ -1,20 +1,7 @@
 # Essential requirements for Lecture Summarizer
 
 streamlit
-os
-tempfile
 requests>=2.28.0
-json
-time
-pathlib
-uuid
-datetime
-logging
-sys
-subprocess
-typing
-dataclasses
-warnings
 torch>=2.0.0
 openai-whisper>=20231117
 moviepy>=1.0.3
