@@ -77,7 +77,5 @@ def is_owner_api_key(api_key: str) -> bool:
     """Check if the API key is the owner's key. Replace with your actual API key hash."""
     # Replace this with your actual API key hash
     # You can generate it by running: _hash_api_key("your_actual_api_key")
-    # import hashlib, os
-    # print(hashlib.sha256("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".encode()).hexdigest()[:16])
     OWNER_API_KEY_HASH = st.secrets["OWNER_API_KEY_HASH"]  # Replace with your actual hash
     return _hash_api_key(api_key) == OWNER_API_KEY_HASH
