@@ -1,4 +1,5 @@
 import streamlit as st
+from dotenv import load_dotenv
 import os
 import tempfile
 import requests
@@ -10,6 +11,13 @@ import datetime as dt
 
 # ── Local Imports ────────────────────────────────────────────────────────────────
 from transcript_generator import WhisperTranscriber, setup_logging
+from data_store import (
+    append_record,
+    get_user_records,
+    read_dataset,
+    is_owner_api_key,
+    get_dataset_stats,
+)
 
 # ── Page Config ─────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -20,17 +28,19 @@ st.set_page_config(
 )
 
 # ── Constants ───────────────────────────────────────────────────────────────────
-HISTORY_FILE = "analysis_history.json"
 MAX_TOKENS = 4000
-MODEL_NAME = "sonar"                # cheapest Perplexity model
-MAX_TRANSCRIPT_CHARS = 10_000       # conservative chunk for prompt
+MODEL_NAME = "sonar"  # cheapest Perplexity model
+MAX_TRANSCRIPT_CHARS = 10_000  # conservative chunk for prompt
+load_dotenv()
+OWNER_API_KEY_HASH = os.getenv("OWNER_API_KEY_HASH")
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                           Utility: Progress Tracker                         ║
+# ║ Utility: Progress Tracker                                                   ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 class ProgressTracker:
     """Visual loader with dynamic ETA estimation."""
+
     def __init__(self) -> None:
         self.start_time: float | None = None
         self.progress_bar = None
@@ -55,14 +65,13 @@ class ProgressTracker:
         else:
             eta_text = "Calculating ETA…"
         self.progress_bar.progress(min(pct, 100))
-        self.status_text.info(f"🔄 {message}  ({current_step}/{self.total_steps}) • {eta_text}")
+        self.status_text.info(f"🔄 {message} ({current_step}/{self.total_steps}) • {eta_text}")
 
     def complete(self) -> None:
         if self.progress_bar:
             self.progress_bar.progress(100)
         if self.status_text:
             self.status_text.success("✅ Analysis Complete!")
-        # brief pause so user sees completion message
         time.sleep(0.8)
         if self.progress_bar:
             self.progress_bar.empty()
@@ -71,38 +80,11 @@ class ProgressTracker:
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                       Utility: Persistent History                           ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
-def load_history() -> list:
-    try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-
-def save_to_history(summary: str, resources: str | list, filename: str) -> None:
-    history = load_history()
-    entry = {
-        "id": str(uuid.uuid4())[:8],
-        "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
-        "filename": filename,
-        "summary": summary,
-        "resources": resources,
-        "preview": (summary[:150] + "…") if len(summary) > 150 else summary,
-    }
-    history.append(entry)
-    # limit to last 50 entries
-    history = history[-50:]
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, indent=2, ensure_ascii=False)
-
-
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                       Perplexity API Wrapper                                ║
+# ║ Perplexity API Wrapper                                                      ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 class PerplexityAPI:
     """Minimal wrapper around Perplexity chat completion endpoint with retries."""
+
     BASE_URL = "https://api.perplexity.ai"
 
     def __init__(self, api_key: str) -> None:
@@ -148,8 +130,9 @@ class PerplexityAPI:
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                         Streamlit Helper Functions                          ║
+# ║ Streamlit Helper Functions                                                  ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
+
 def load_api_key() -> str | None:
     api_key = os.getenv("PERPLEXITY_API_KEY")
     if api_key:
@@ -175,13 +158,14 @@ def summarize_transcript(api: PerplexityAPI, transcript: str) -> str:
             "role": "system",
             "content": (
                 "You are an expert educational content analyst. "
-                "Summarize thoroughly, capturing all key ideas, examples, and take-aways."
+                "Summarize thoroughly, capturing all key ideas, examples, and take-aways "
+                "in a **hierarchical markdown** format with clear headings and bullet points."
             ),
         },
         {
             "role": "user",
             "content": (
-                "Please provide a comprehensive summary of the following lecture transcript. \n\n"
+                "Please provide a comprehensive summary of the following lecture transcript."
                 f"{transcript}"
             ),
         },
@@ -215,7 +199,7 @@ def find_learning_resources(api: PerplexityAPI, summary: str) -> str:
         {
             "role": "user",
             "content": (
-                f"Suggest the best resources to learn more about: {topics or 'the lecture topics'}.\n"
+                f"Suggest the best resources to learn more about: {topics or 'the lecture topics'}."
                 "For each resource include a short description and a direct URL."
             ),
         },
@@ -236,19 +220,20 @@ def save_temp_file(uploaded_file) -> str | None:
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                                Main App                                     ║
+# ║ Main App                                                                    ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
+
 def main() -> None:
-    # ── Title & Intro ───────────────────────────────────────────────────────────
+    # ── Title & Intro ────────────────────────────────────────────────────────
     st.title("🎧 Lecture Transcript Analyzer")
     st.markdown(
         """
-Turn your audio/video lecture into a **detailed study summary** and a curated list of
-**learning resources** – powered by Whisper + Perplexity (cheapest *sonar* model).
-"""
+        Turn your audio/video lecture into a **detailed study summary** and a curated list of
+        **learning resources** – powered by Whisper + Perplexity (cheapest *sonar* model).
+        """
     )
 
-    # ── Session State defaults ─────────────────────────────────────────────────
+    # ── Session State defaults ─────────────────────────────────────────────
     for key, default in {
         "show_results": False,
         "current_summary": "",
@@ -258,14 +243,14 @@ Turn your audio/video lecture into a **detailed study summary** and a curated li
     }.items():
         st.session_state.setdefault(key, default)
 
-    # ── API Key ────────────────────────────────────────────────────────────────
+    # ── API Key ───────────────────────────────────────────────────────────
     api_key = load_api_key()
     if not api_key:
         st.info("Enter API key in sidebar to begin.")
         return
     api_client = PerplexityAPI(api_key)
 
-    # ── Sidebar: Config & History ──────────────────────────────────────────────
+    # ── Sidebar: Config & History ─────────────────────────────────────────
     with st.sidebar:
         st.markdown("### ⚙️ Whisper Settings")
         model_choice = st.selectbox(
@@ -281,39 +266,49 @@ Turn your audio/video lecture into a **detailed study summary** and a curated li
 
         st.markdown("---")
         st.markdown("### 📚 Analysis History")
-        history = load_history()
-        if history:
-            for item in reversed(history[-10:]):  # show last 10
+        user_history = get_user_records(api_key)
+        if user_history:
+            # Show the most recent 10 items
+            for item in reversed(user_history[-10:]):
                 with st.expander(f"🎵 {item['filename'][:20]}…"):
                     st.write(f"**{item['timestamp']}**")
                     st.write(item["preview"])
                     if st.button("Load", key=item["id"]):
-                        st.session_state["loaded_summary"] = item["summary"]
-                        st.session_state["loaded_resources"] = item["resources"]
+                        st.session_state["loaded_summary"] = item["summary_markdown"]
+                        st.session_state["loaded_resources"] = item["resources_markdown"]
                         st.session_state["show_results"] = True
                         st.rerun()
         else:
-            st.caption("No past analyses.")
-        if st.button("🗑️ Clear history"):
-            if os.path.exists(HISTORY_FILE):
-                os.remove(HISTORY_FILE)
-            st.success("History cleared.")
-            st.rerun()
+            st.caption("No past analyses for this API key.")
 
-    # ── File Upload ────────────────────────────────────────────────────────────
+        # Dataset download only for owner
+        if is_owner_api_key(api_key):
+            st.markdown("---")
+            stats = get_dataset_stats()
+            st.caption(
+                f"📊 Dataset: {stats['total_records']} records • {stats['file_size_mb']:.2f} MB"
+            )
+            st.download_button(
+                "⬇️ Download full dataset (.jsonl)",
+                data=read_dataset(),
+                file_name="lecture_dataset.jsonl",
+                mime="application/json",
+            )
+
+    # ── File Upload ───────────────────────────────────────────────────────
     st.markdown("### 📁 Upload Audio/Video")
     uploaded_file = st.file_uploader(
         "Choose file",
         type=["mp3", "wav", "mp4", "avi", "mov", "mkv", "flv", "webm"],
     )
 
-    # ── Analyze Button ─────────────────────────────────────────────────────────
+    # ── Analyze Button ───────────────────────────────────────────────────
     if st.button("🚀 Analyze", disabled=uploaded_file is None):
         if uploaded_file is None:
             st.warning("Please upload a file first.")
             st.stop()
 
-        # Save file
+        # Save file temporarily
         tmp_path = save_temp_file(uploaded_file)
         if not tmp_path:
             st.stop()
@@ -353,9 +348,15 @@ Turn your audio/video lecture into a **detailed study summary** and a curated li
             st.session_state["loaded_resources"] = ""
             st.session_state["show_results"] = True
 
-            save_to_history(summary_text, resources_text, uploaded_file.name)
+            # Append to dataset
+            append_record(
+                transcript=result.text,
+                summary_md=summary_text,
+                resources_md=resources_text,
+                api_key=api_key,
+                filename=uploaded_file.name,
+            )
             st.rerun()
-
 
         except Exception as e:
             tracker.complete()
@@ -366,7 +367,7 @@ Turn your audio/video lecture into a **detailed study summary** and a curated li
                 transcriber.cleanup_temp_files()
             st.stop()
 
-    # ── Display Results in Tabs ────────────────────────────────────────────────
+    # ── Display Results in Tabs ────────────────────────────────────────────
     if st.session_state.get("show_results"):
         summary = (
             st.session_state["loaded_summary"] or st.session_state["current_summary"]
@@ -375,9 +376,7 @@ Turn your audio/video lecture into a **detailed study summary** and a curated li
             st.session_state["loaded_resources"] or st.session_state["current_resources"]
         )
 
-        tab_sum, tab_cite = st.tabs(
-            ["📝 Summary", f"🔗 Citations & Resources"]
-        )
+        tab_sum, tab_cite = st.tabs(["📝 Summary", "🔗 Citations & Resources"])
 
         with tab_sum:
             st.header("Detailed Summary")
@@ -385,31 +384,30 @@ Turn your audio/video lecture into a **detailed study summary** and a curated li
             st.download_button(
                 "📥 Download Summary",
                 data=summary,
-                file_name=f"summary_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                mime="text/plain",
+                file_name=f"summary_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                mime="text/markdown",
             )
 
         with tab_cite:
             st.header("Learning Resources")
             st.write(resources)
 
-    # ── How-to Section ─────────────────────────────────────────────────────────
+    # ── How-to Section ────────────────────────────────────────────────────
     st.markdown("---")
     st.markdown(
         """
-### 📖 How to Use
+        ### 📖 How to Use
 
-1. **Add API key** in the sidebar (Perplexity account required).  
-2. **Upload** an audio/video lecture file.  
-3. Adjust **Whisper settings** (model & chunk duration) if desired.  
-4. Click **Analyze** and watch the progress loader with ETA.  
-5. Explore results in the two tabs and revisit past runs in the sidebar.
+        1. **Add API key** in the sidebar (Perplexity account required).  
+        2. **Upload** an audio/video lecture file.  
+        3. Adjust **Whisper settings** (model & chunk duration) if desired.  
+        4. Click **Analyze** and watch the progress loader with ETA.  
+        5. Explore results in the two tabs and revisit past runs in the sidebar.
 
-*Tip *: Clear history anytime via the sidebar button.
-"""
+        *Tip*: Dataset download is available only for the owner API key. Each user sees only their own analyses.
+        """
     )
 
 
 if __name__ == "__main__":
     main()
- 

@@ -49,3 +49,5 @@ logs/
 Thumbs.db
 
 .env
+
+/.streamlit/secrets.toml 

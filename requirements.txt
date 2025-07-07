@@ -9,5 +9,6 @@ pydub>=0.25.1
 psutil>=5.9.0
 tqdm>=4.65.0
 numpy>=1.21.0
+python-dotenv
 # The following are standard libraries and do not need to be installed via pip:
 # os, tempfile, json, time, pathlib, uuid, datetime, logging, sys, subprocess, typing, dataclasses, warnings
