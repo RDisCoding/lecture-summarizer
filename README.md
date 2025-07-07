@@ -2,7 +2,7 @@
 
 Transform your recorded lectures into detailed study summaries and curated learning resources with the power of AI. Perfect for college students who want to maximize their learning from audio and video lectures.
 
-[![Live Demo](https://img.shields.io/badge/🚀%20Try%20It%20Live-iamcookin.streamlit.app-FF4B4B?style=for-the-badge)](https://iamcookin.streamlit.app/)
+[![Live Demo](https://img.shields.io/badge/🚀%20Try%20It%20Live-thelazyone.streamlit.app-FF4B4B?style=for-the-badge)](https://thelazyone.streamlit.app/)
 
 ![Python](https://img.shields.io/badge/python-v3.8+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -41,7 +41,7 @@ Transform your recorded lectures into detailed study summaries and curated learn
 ## 🚀 Quick Start
 
 ### 🌐 Try It Online (Recommended)
-**No installation required!** Just visit: **[iamcookin.streamlit.app](https://iamcookin.streamlit.app/)**
+**No installation required!** Just visit: **[thelazyone.streamlit.app](https://thelazyone.streamlit.app/)**
 
 Simply upload your lecture file and enter your Perplexity API key to get started instantly.
 
@@ -93,7 +93,7 @@ torch>=2.0.0
 ## 🎮 How to Use
 
 ### 🌐 Using the Live App (Easiest)
-1. **Visit** [iamcookin.streamlit.app](https://iamcookin.streamlit.app/)
+1. **Visit** [thelazyone.streamlit.app](https://thelazyone.streamlit.app/)
 2. **Enter your Perplexity API key** in the sidebar
 3. **Upload your lecture file** (audio or video)
 4. **Adjust settings** if needed:
@@ -235,7 +235,7 @@ Having issues? We're here to help!
 
 **⭐ If this tool helped you ace your studies, please star this repo! ⭐**
 
-**🚀 [Try it now at iamcookin.streamlit.app](https://iamcookin.streamlit.app/)**
+**🚀 [Try it now at thelazyone.streamlit.app](https://thelazyone.streamlit.app/)**
 
 Made with ❤️ for students who want to learn smarter, not harder.
 
